@@ -21,9 +21,7 @@ const Color kAccentPink = Color(0xFFFF4F93);
 const Color kYellow = Color(0xFFFFD93D);
 const Color kSkyBlue = Color(0xFFBDE7FF);
 const Color kBgCream = Color(0xFFFFF8EE);
-const Color kCardWhite = Color(0xFFFFFFFF);
 const Color kGreen = Color(0xFF00A859);
-const Color kGreenDark = Color(0xFF008F4C);
 
 class ClipwaveApp extends StatelessWidget {
   const ClipwaveApp({super.key});
@@ -56,8 +54,9 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final TextEditingController _urlController = TextEditingController();
+  final ScrollController _marqueeScrollController = ScrollController();
   
-  // Default to the live Cloudflare Tunnel URL, but user can customize in settings
+  // Default to the live Cloudflare Tunnel URL or local host
   String _apiBaseUrl = 'https://pharmacology-frederick-henry-partnership.trycloudflare.com';
 
   bool _isLoading = false;
@@ -68,6 +67,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Map<String, dynamic>? _videoData;
   String? _errorMessage;
 
+  String _selectedFormat = 'MP4'; // 'MP4' or 'MP3'
+  String _selectedQuality = '720p'; // '480p', '720p', '1080p'
   String _selectedQualityCode = '720p';
   String _selectedQualityLabel = 'MP4 720';
 
@@ -76,7 +77,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   String _downloadNotice = '';
 
   late AnimationController _radarController;
-  late AnimationController _bounceController;
+  late AnimationController _eqController;
+  Timer? _marqueeTimer;
 
   @override
   void initState() {
@@ -86,21 +88,43 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 2000),
     )..repeat();
 
-    _bounceController = AnimationController(
+    _eqController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
+      duration: const Duration(milliseconds: 900),
     )..repeat(reverse: true);
 
     // Auto-detect clipboard on app startup
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (kIsWeb && (Uri.base.host == 'localhost' || Uri.base.host == '127.0.0.1')) {
+        setState(() {
+          _apiBaseUrl = 'http://127.0.0.1:5000';
+        });
+      }
       _checkClipboardForVideoUrl();
+      _startMarqueeScroll();
+    });
+  }
+
+  void _startMarqueeScroll() {
+    _marqueeTimer = Timer.periodic(const Duration(milliseconds: 30), (timer) {
+      if (_marqueeScrollController.hasClients) {
+        final max = _marqueeScrollController.position.maxScrollExtent;
+        final current = _marqueeScrollController.offset;
+        if (current >= max) {
+          _marqueeScrollController.jumpTo(0);
+        } else {
+          _marqueeScrollController.jumpTo(current + 1.2);
+        }
+      }
     });
   }
 
   @override
   void dispose() {
     _radarController.dispose();
-    _bounceController.dispose();
+    _eqController.dispose();
+    _marqueeTimer?.cancel();
+    _marqueeScrollController.dispose();
     _progressTimer?.cancel();
     _urlController.dispose();
     super.dispose();
@@ -124,16 +148,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   borderRadius: BorderRadius.circular(14),
                   side: const BorderSide(color: kYellow, width: 2),
                 ),
-                content: Row(
+                content: const Row(
                   children: [
-                    const Text('📋 ', style: TextStyle(fontSize: 18)),
+                    Text('📋 ', style: TextStyle(fontSize: 18)),
                     Expanded(
                       child: Text(
                         'Found video link in clipboard!',
-                        style: GoogleFonts.mPlusRounded1c(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                        ),
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
                       ),
                     ),
                   ],
@@ -175,7 +196,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _loadingStatusMsg = 'Connecting to server...';
     });
 
-    // Realistic progress animation steps matching web
     int step = 0;
     _progressTimer?.cancel();
     _progressTimer = Timer.periodic(const Duration(milliseconds: 400), (timer) {
@@ -195,9 +215,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       final endpoint = Uri.parse('$_apiBaseUrl/api/info');
       final res = await http.post(
         endpoint,
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
         body: jsonEncode({'url': rawUrl}),
-      ).timeout(const Duration(seconds: 35));
+      ).timeout(const Duration(seconds: 40));
 
       _progressTimer?.cancel();
 
@@ -217,7 +240,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         }
       } else {
         final data = jsonDecode(res.body);
-        throw Exception(data['error'] ?? 'Server error ${res.statusCode}');
+        throw Exception(data['error'] ?? 'Server returned ${res.statusCode}');
       }
     } catch (e) {
       _progressTimer?.cancel();
@@ -243,12 +266,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     });
 
     try {
-      // Stream file download
       final req = http.Request('GET', Uri.parse(downloadUrl));
       final streamedResponse = await req.send().timeout(const Duration(seconds: 120));
 
       if (streamedResponse.statusCode != 200) {
-        throw Exception('Download failed with status ${streamedResponse.statusCode}');
+        throw Exception('Server error ${streamedResponse.statusCode}');
       }
 
       final contentLength = streamedResponse.contentLength ?? 1;
@@ -271,14 +293,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             _downloadNotice = 'Saving file to device...';
           });
 
-          // Save file to device
           String ext = _selectedQualityCode == 'audio' ? '.mp3' : (_selectedQualityCode == 'm4a' ? '.m4a' : '.mp4');
           String cleanTitle = (_videoData!['title'] ?? 'video').replaceAll(RegExp(r'[\\/*?:"<>|]'), '');
           if (cleanTitle.length > 50) cleanTitle = cleanTitle.substring(0, 50);
 
           Directory? dir;
           if (kIsWeb) {
-            // Web platform doesn't need file system
+            // Web browser download
           } else if (Platform.isAndroid || Platform.isIOS) {
             dir = await getApplicationDocumentsDirectory();
           } else {
@@ -297,6 +318,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             if (mounted) {
               _showDownloadSuccessDialog(filePath, cleanTitle + ext);
             }
+          } else {
+            setState(() {
+              _isDownloading = false;
+            });
           }
         },
         onError: (err) {
@@ -502,7 +527,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Set the backend server URL (Cloudflare Tunnel, Render, or Local PC):',
+              'Select backend server endpoint:',
               style: TextStyle(fontSize: 13, color: Colors.black87),
             ),
             const SizedBox(height: 12),
@@ -524,20 +549,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           TextButton(
             onPressed: () {
               setState(() {
-                _apiBaseUrl = 'http://10.0.2.2:5000'; // Android emulator localhost
-              });
-              Navigator.pop(ctx);
-            },
-            child: const Text('Emulator', style: TextStyle(fontSize: 12)),
-          ),
-          TextButton(
-            onPressed: () {
-              setState(() {
                 _apiBaseUrl = 'http://127.0.0.1:5000';
               });
               Navigator.pop(ctx);
             },
-            child: const Text('Localhost', style: TextStyle(fontSize: 12)),
+            child: const Text('Localhost (5000)', style: TextStyle(fontSize: 12)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -566,23 +582,42 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       appBar: AppBar(
         backgroundColor: kSkyBlue,
         elevation: 0,
-        toolbarHeight: 70,
-        shape: const Border(bottom: BorderSide(color: kInk, width: 3)),
+        toolbarHeight: 74,
+        shape: const Border(bottom: BorderSide(color: kInk, width: 3.5)),
         title: Row(
           children: [
-            // Pink Mascot Play Logo
+            // Pink Mascot Play Logo with Yellow Corner Star
             Container(
-              width: 38,
-              height: 38,
+              width: 42,
+              height: 42,
               decoration: BoxDecoration(
                 color: kAccentPink,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: kInk, width: 2.5),
-                boxShadow: const [BoxShadow(color: kInk, offset: Offset(2.5, 2.5))],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: kInk, width: 2.8),
+                boxShadow: const [BoxShadow(color: kInk, offset: Offset(3, 3))],
               ),
-              child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 24),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 26),
+                  Positioned(
+                    top: 2,
+                    right: 2,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: kYellow,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 12),
+
+            // Logo Text
             Text(
               'Clipwave',
               style: GoogleFonts.delaGothicOne(
@@ -591,199 +626,478 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 letterSpacing: 0.5,
               ),
             ),
+
+            const SizedBox(width: 8),
+
+            // Live Animated Soundwave Equalizer (Matching Web Navbar)
+            AnimatedBuilder(
+              animation: _eqController,
+              builder: (context, child) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    _buildEqBar(6 + 12 * _eqController.value),
+                    const SizedBox(width: 3),
+                    _buildEqBar(16 - 10 * _eqController.value),
+                    const SizedBox(width: 3),
+                    _buildEqBar(8 + 14 * (1 - _eqController.value)),
+                    const SizedBox(width: 3),
+                    _buildEqBar(14 - 8 * _eqController.value),
+                  ],
+                );
+              },
+            ),
           ],
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.settings, color: kInk, size: 24),
+            icon: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: kYellow,
+                shape: BoxShape.circle,
+                border: Border.all(color: kInk, width: 2),
+              ),
+              child: const Icon(Icons.settings, color: kInk, size: 20),
+            ),
             onPressed: _showSettingsDialog,
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 8),
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Japanese Tagline Badge
+            // ================= HERO SECTION =================
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-              decoration: BoxDecoration(
-                color: kInk,
-                borderRadius: BorderRadius.circular(10),
-                boxShadow: const [BoxShadow(color: kAccentPink, offset: Offset(2.5, 2.5))],
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              decoration: const BoxDecoration(
+                color: kSkyBlue,
+                border: Border(bottom: BorderSide(color: kInk, width: 3.5)),
               ),
-              child: Text(
-                'ダウンロード  FREE VIDEO SAVER',
-                style: GoogleFonts.mPlusRounded1c(
-                  color: kYellow,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 1.0,
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-
-            // Hero Main Title
-            Text(
-              'Save any video.',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.delaGothicOne(
-                fontSize: 28,
-                color: kInk,
-                height: 1.15,
-              ),
-            ),
-            Text(
-              'Keep it forever!',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.delaGothicOne(
-                fontSize: 28,
-                color: kAccentPink,
-                height: 1.15,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              'Paste a link, pick your power level, and download. No watermark, no ads, no limits.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade800,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 22),
-
-            // URL Input Card with Paste Button
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: kInk, width: 3),
-                boxShadow: const [BoxShadow(color: kInk, offset: Offset(5, 5))],
-              ),
-              child: Row(
+              child: Column(
                 children: [
-                  const SizedBox(width: 12),
-                  const Icon(Icons.link_rounded, color: kInk, size: 22),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: _urlController,
-                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-                      decoration: const InputDecoration(
-                        hintText: 'Paste YouTube, TikTok, Reels link...',
-                        hintStyle: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.normal),
-                        border: InputBorder.none,
-                      ),
+                  // Japanese Tagline Badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: kInk,
+                      borderRadius: BorderRadius.circular(10),
+                      boxShadow: const [BoxShadow(color: kAccentPink, offset: Offset(2.5, 2.5))],
                     ),
-                  ),
-                  InkWell(
-                    onTap: () async {
-                      ClipboardData? data = await Clipboard.getData(Clipboard.kTextPlain);
-                      if (data?.text != null) {
-                        _urlController.text = data!.text!.trim();
-                        _fetchVideoInfo();
-                      }
-                    },
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      decoration: BoxDecoration(
+                    child: Text(
+                      'ダウンロード  FREE VIDEO SAVER',
+                      style: GoogleFonts.mPlusRounded1c(
                         color: kYellow,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: kInk, width: 2),
-                      ),
-                      child: const Text(
-                        'Paste',
-                        style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: kInk),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.0,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 4),
+                  const SizedBox(height: 14),
+
+                  // Hero Main Title
+                  Text(
+                    'Save any video.',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.delaGothicOne(
+                      fontSize: 30,
+                      color: kInk,
+                      height: 1.15,
+                    ),
+                  ),
+                  Text(
+                    'Keep it forever!',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.delaGothicOne(
+                      fontSize: 30,
+                      color: kAccentPink,
+                      height: 1.15,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Paste a link, pick your power level, and download. No watermark, no ads, no limits.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey.shade900,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+
+                  // Anime Mascot Speech Bubble Card
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: kInk, width: 2.5),
+                      boxShadow: const [BoxShadow(color: kInk, offset: Offset(3.5, 3.5))],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('✨ 🌸 ', style: TextStyle(fontSize: 18)),
+                        Text(
+                          'SAVE FROM TIKTOK, REELS & YOUTUBE!',
+                          style: GoogleFonts.delaGothicOne(
+                            fontSize: 12,
+                            color: kAccentPink,
+                          ),
+                        ),
+                        const Text(' ⭐', style: TextStyle(fontSize: 18)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+
+                  // URL Input Card with Paste Button
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(color: kInk, width: 3.5),
+                      boxShadow: const [BoxShadow(color: kInk, offset: Offset(5, 5))],
+                    ),
+                    child: Row(
+                      children: [
+                        const SizedBox(width: 12),
+                        const Icon(Icons.link_rounded, color: kInk, size: 24),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: _urlController,
+                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                            decoration: const InputDecoration(
+                              hintText: 'Paste YouTube, TikTok, Reels link...',
+                              hintStyle: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.normal),
+                              border: InputBorder.none,
+                            ),
+                          ),
+                        ),
+                        InkWell(
+                          onTap: () async {
+                            ClipboardData? data = await Clipboard.getData(Clipboard.kTextPlain);
+                            if (data?.text != null) {
+                              _urlController.text = data!.text!.trim();
+                              _fetchVideoInfo();
+                            }
+                          },
+                          borderRadius: BorderRadius.circular(14),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: kYellow,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: kInk, width: 2.2),
+                              boxShadow: const [BoxShadow(color: kInk, offset: Offset(2, 2))],
+                            ),
+                            child: const Text(
+                              'Paste',
+                              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: kInk),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Format Segmented Toggle & Quality Chips (Exact Match to Web Design!)
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      // MP4 vs MP3 Segmented Toggle
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: kInk, width: 3),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildFormatBtn('MP4'),
+                            const SizedBox(width: 4),
+                            _buildFormatBtn('MP3'),
+                          ],
+                        ),
+                      ),
+
+                      // Quality Chips: 480p, 720p, 1080p
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _buildQualityChip('480p'),
+                          const SizedBox(width: 6),
+                          _buildQualityChip('720p'),
+                          const SizedBox(width: 6),
+                          _buildQualityChip('1080p'),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+
+                  // Big Download Action Button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: kAccentPink,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        side: const BorderSide(color: kInk, width: 3.5),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        shadowColor: Colors.transparent,
+                      ),
+                      onPressed: _isLoading ? null : _fetchVideoInfo,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            _isLoading ? 'Checking...' : 'Download',
+                            style: GoogleFonts.delaGothicOne(
+                              fontSize: 19,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Icon(Icons.arrow_downward_rounded, size: 24),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  if (_errorMessage != null) ...[
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFE4E6),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE11D48), width: 2),
+                      ),
+                      child: Text(
+                        _errorMessage!,
+                        style: const TextStyle(
+                          color: Color(0xFFBE123C),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
-            const SizedBox(height: 16),
 
-            // Download Trigger Button
-            SizedBox(
+            // ================= INFINITE MARQUEE BANNER RIBBON (MATCHING WEB!) =================
+            Container(
+              height: 48,
               width: double.infinity,
-              height: 54,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: kAccentPink,
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  side: const BorderSide(color: kInk, width: 3),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  shadowColor: Colors.transparent,
-                ),
-                onPressed: _isLoading ? null : _fetchVideoInfo,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      _isLoading ? 'Checking...' : 'Download',
-                      style: GoogleFonts.delaGothicOne(
-                        fontSize: 18,
-                        color: Colors.white,
+              color: kInk,
+              alignment: Alignment.center,
+              child: ListView.builder(
+                controller: _marqueeScrollController,
+                scrollDirection: Axis.horizontal,
+                physics: const NeverScrollableScrollPhysics(),
+                itemBuilder: (context, index) {
+                  return Row(
+                    children: [
+                      Text(
+                        '  FAST ★ FREE ★ NO SIGN-UP ★ MP4 + MP3 ★ HD READY ★ TIKTOK ★ REELS ★ YOUTUBE  ',
+                        style: GoogleFonts.delaGothicOne(
+                          color: kYellow,
+                          fontSize: 15,
+                          letterSpacing: 0.5,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    const Icon(Icons.arrow_downward_rounded, size: 22),
-                  ],
-                ),
+                    ],
+                  );
+                },
               ),
             ),
 
-            if (_errorMessage != null) ...[
-              const SizedBox(height: 14),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFE4E6),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE11D48), width: 2),
-                ),
-                child: Text(
-                  _errorMessage!,
-                  style: const TextStyle(
-                    color: Color(0xFFBE123C),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              child: Column(
+                children: [
+                  // ================= ANIMATED LOADING RADAR (MATCHING USER SCREENSHOT) =================
+                  if (_isLoading) _buildLoadingRadarCard(),
+
+                  // ================= VIDEO RESULT CARD WITH SPLIT BUTTON =================
+                  if (_videoData != null && !_isLoading) _buildVideoResultCard(),
+
+                  const SizedBox(height: 24),
+
+                  // Feature Cards Grid
+                  _buildFeatureCard(
+                    icon: '🛡️',
+                    title: '100% Ad-Free & Safe',
+                    desc: 'No popups, no redirects, no malware or scam extensions.',
+                    borderColor: kAccentPink,
                   ),
-                ),
+                  const SizedBox(height: 14),
+                  _buildFeatureCard(
+                    icon: '⚡',
+                    title: 'High-Speed Downloads',
+                    desc: 'Direct streaming engine delivers max resolution videos in seconds.',
+                    borderColor: kYellow,
+                  ),
+                  const SizedBox(height: 14),
+                  _buildFeatureCard(
+                    icon: '🎬',
+                    title: 'Full HD & Clean Audio',
+                    desc: 'Crystal clear 1080p MP4 and 192k MP3 audio ready for your gallery.',
+                    borderColor: const Color(0xFF3BC8FF),
+                  ),
+                  const SizedBox(height: 30),
+                ],
               ),
-            ],
-
-            const SizedBox(height: 24),
-
-            // ================= ANIMATED LOADING RADAR (MATCHING USER SCREENSHOT) =================
-            if (_isLoading) _buildLoadingRadarCard(),
-
-            // ================= VIDEO RESULT CARD WITH SPLIT BUTTON =================
-            if (_videoData != null && !_isLoading) _buildVideoResultCard(),
-
-            const SizedBox(height: 30),
-
-            // Platforms & Trust Badges
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildTrustChip('⚡ Instant Speed'),
-                _buildTrustChip('🛡️ No Ads'),
-                _buildTrustChip('🎬 1080p Ready'),
-              ],
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildEqBar(double height) {
+    return Container(
+      width: 4,
+      height: height.clamp(4.0, 20.0),
+      decoration: BoxDecoration(
+        color: kInk,
+        borderRadius: BorderRadius.circular(2),
+      ),
+    );
+  }
+
+  Widget _buildFormatBtn(String label) {
+    final isSelected = _selectedFormat == label;
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _selectedFormat = label;
+          if (label == 'MP3') {
+            _selectedQualityCode = 'audio';
+            _selectedQualityLabel = 'Audio MP3';
+          } else {
+            _selectedQualityCode = _selectedQuality;
+            _selectedQualityLabel = 'MP4 $_selectedQuality';
+          }
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? kInk : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? kYellow : kInk,
+            fontWeight: FontWeight.w900,
+            fontSize: 14,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQualityChip(String label) {
+    final isSelected = _selectedQuality == label && _selectedFormat == 'MP4';
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _selectedFormat = 'MP4';
+          _selectedQuality = label;
+          _selectedQualityCode = label;
+          _selectedQualityLabel = 'MP4 $label';
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        decoration: BoxDecoration(
+          color: isSelected ? kYellow : Colors.white,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: kInk, width: 2.5),
+          boxShadow: isSelected ? const [BoxShadow(color: kInk, offset: Offset(2.5, 2.5))] : null,
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: kInk,
+            fontWeight: FontWeight.w900,
+            fontSize: 13,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFeatureCard({
+    required String icon,
+    required String title,
+    required String desc,
+    required Color borderColor,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: kInk, width: 3),
+        boxShadow: [BoxShadow(color: borderColor, offset: const Offset(5, 5))],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: kBgCream,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: kInk, width: 2),
+            ),
+            alignment: Alignment.center,
+            child: Text(icon, style: const TextStyle(fontSize: 22)),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: GoogleFonts.delaGothicOne(fontSize: 16, color: kInk),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  desc,
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade700, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -811,7 +1125,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 return Stack(
                   alignment: Alignment.center,
                   children: [
-                    // Concentric ripple rings
                     Container(
                       width: 115 * _radarController.value + 40,
                       height: 115 * _radarController.value + 40,
@@ -831,7 +1144,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         border: Border.all(color: const Color(0xFFBFDBFE), width: 2),
                       ),
                     ),
-                    // Orbiting blue dots from screenshot
                     Positioned(
                       top: 10 + 6 * math.sin(_radarController.value * 2 * math.pi),
                       child: Container(
@@ -867,7 +1179,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         ),
                       ),
                     ),
-                    // Center Download Icon Box
                     Container(
                       width: 52,
                       height: 52,
@@ -889,7 +1200,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ),
           const SizedBox(height: 24),
 
-          // Smooth Progress Bar
           ClipRRect(
             borderRadius: BorderRadius.circular(999),
             child: SizedBox(
@@ -903,7 +1213,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ),
           const SizedBox(height: 14),
 
-          // Animated Status Text
           Text(
             _loadingStatusMsg,
             style: const TextStyle(
@@ -936,7 +1245,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Thumbnail with Duration Overlay
           Stack(
             children: [
               ClipRRect(
@@ -1112,21 +1420,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildTrustChip(String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: kInk, width: 2),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11, color: kInk),
       ),
     );
   }
