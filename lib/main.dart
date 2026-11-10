@@ -407,6 +407,19 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
+  void _selectQuality(String code, String label) {
+    setState(() {
+      _selectedQualityCode = code;
+      _selectedQualityLabel = label;
+      if (code == 'audio' || code == 'm4a') {
+        _selectedFormat = 'MP3';
+      } else {
+        _selectedFormat = 'MP4';
+        _selectedQuality = code;
+      }
+    });
+  }
+
   void _showQualityPicker() {
     final options = [
       {'code': '1080p', 'label': 'MP4 1080', 'sub': '1080p Full HD (Crisp)'},
@@ -419,90 +432,110 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-          border: Border(
-            top: BorderSide(color: kInk, width: 3.5),
-            left: BorderSide(color: kInk, width: 3.5),
-            right: BorderSide(color: kInk, width: 3.5),
+      builder: (ctx) => SafeArea(
+        child: Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.75,
           ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Select Quality',
-                  style: GoogleFonts.delaGothicOne(fontSize: 18, color: kInk),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close, color: kInk),
-                  onPressed: () => Navigator.pop(ctx),
-                )
-              ],
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+            border: Border(
+              top: BorderSide(color: kInk, width: 3.5),
+              left: BorderSide(color: kInk, width: 3.5),
+              right: BorderSide(color: kInk, width: 3.5),
             ),
-            const SizedBox(height: 12),
-            ...options.map((opt) {
-              final isSelected = _selectedQualityCode == opt['code'];
-              return InkWell(
-                onTap: () {
-                  setState(() {
-                    _selectedQualityCode = opt['code']!;
-                    _selectedQualityLabel = opt['label']!;
-                  });
-                  Navigator.pop(ctx);
-                },
-                child: Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: isSelected ? const Color(0xFFE6F8EF) : Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: isSelected ? kGreen : Colors.grey.shade300,
-                      width: isSelected ? 2.5 : 1,
-                    ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Pill handle
+              Container(
+                width: 44,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Select Quality',
+                    style: GoogleFonts.delaGothicOne(fontSize: 18, color: kInk),
                   ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        isSelected ? Icons.check_circle : Icons.circle_outlined,
-                        color: isSelected ? kGreen : Colors.grey,
-                        size: 22,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                  IconButton(
+                    icon: const Icon(Icons.close, color: kInk),
+                    onPressed: () => Navigator.pop(ctx),
+                  )
+                ],
+              ),
+              const SizedBox(height: 10),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: options.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (context, idx) {
+                    final opt = options[idx];
+                    final isSelected = _selectedQualityCode == opt['code'];
+                    return InkWell(
+                      onTap: () {
+                        _selectQuality(opt['code']!, opt['label']!);
+                        Navigator.pop(ctx);
+                      },
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: isSelected ? const Color(0xFFE6F8EF) : Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: isSelected ? kGreen : Colors.grey.shade300,
+                            width: isSelected ? 2.5 : 1,
+                          ),
+                        ),
+                        child: Row(
                           children: [
-                            Text(
-                              opt['label']!,
-                              style: TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: 15,
-                                color: isSelected ? kGreen : kInk,
-                              ),
+                            Icon(
+                              isSelected ? Icons.check_circle : Icons.circle_outlined,
+                              color: isSelected ? kGreen : Colors.grey,
+                              size: 22,
                             ),
-                            Text(
-                              opt['sub']!,
-                              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    opt['label']!,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 15,
+                                      color: isSelected ? kGreen : kInk,
+                                    ),
+                                  ),
+                                  Text(
+                                    opt['sub']!,
+                                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),
                       ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
-              );
-            }),
-          ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -510,68 +543,211 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   void _showSettingsDialog() {
     final controller = TextEditingController(text: _apiBaseUrl);
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: kBgCream,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
-          side: const BorderSide(color: kInk, width: 3),
-        ),
-        title: Text(
-          'API Server Settings',
-          style: GoogleFonts.delaGothicOne(fontSize: 16, color: kInk),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Select backend server endpoint:',
-              style: TextStyle(fontSize: 13, color: Colors.black87),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => SafeArea(
+          child: Container(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 20,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 24,
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              decoration: InputDecoration(
-                filled: true,
-                fillColor: Colors.white,
-                contentPadding: const EdgeInsets.all(12),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: kInk, width: 2),
-                ),
+            decoration: const BoxDecoration(
+              color: kBgCream,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+              border: Border(
+                top: BorderSide(color: kInk, width: 3.5),
+                left: BorderSide(color: kInk, width: 3.5),
+                right: BorderSide(color: kInk, width: 3.5),
               ),
             ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              setState(() {
-                _apiBaseUrl = 'http://127.0.0.1:5000';
-              });
-              Navigator.pop(ctx);
-            },
-            child: const Text('Localhost (5000)', style: TextStyle(fontSize: 12)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: kYellow,
-              foregroundColor: kInk,
-              elevation: 0,
-              side: const BorderSide(color: kInk, width: 2),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade400,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: kYellow,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: kInk, width: 2),
+                            ),
+                            child: const Text('⚙️ CONFIG', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11, color: kInk)),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Engine & Cloud',
+                            style: GoogleFonts.delaGothicOne(fontSize: 18, color: kInk),
+                          ),
+                        ],
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: kInk),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Cloud status banner
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE6F8EF),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: kGreen, width: 2),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 10,
+                          height: 10,
+                          decoration: const BoxDecoration(
+                            color: kGreen,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Text(
+                            'Cloud Backend: Live & Hosted (Cloudflare Global)',
+                            style: TextStyle(color: kGreen, fontWeight: FontWeight.w800, fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  const Text(
+                    'Hosted API Endpoint URL:',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: kInk),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: controller,
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: Colors.white,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: kInk, width: 2.5),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: kInk, width: 2.5),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: kAccentPink, width: 2.5),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Cloud Preset Chips
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ActionChip(
+                        backgroundColor: Colors.white,
+                        side: const BorderSide(color: kInk, width: 1.5),
+                        label: const Text('☁️ Cloudflare Global (Default)', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11)),
+                        onPressed: () {
+                          setModalState(() {
+                            controller.text = 'https://pharmacology-frederick-henry-partnership.trycloudflare.com';
+                          });
+                        },
+                      ),
+                      ActionChip(
+                        backgroundColor: Colors.white,
+                        side: const BorderSide(color: kInk, width: 1.5),
+                        label: const Text('🚀 Render.com Cloud', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11)),
+                        onPressed: () {
+                          setModalState(() {
+                            controller.text = 'https://clipwave-backend.onrender.com';
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+
+                  // App Info Card
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: kInk, width: 2.2),
+                      boxShadow: const [BoxShadow(color: kSkyBlue, offset: Offset(3, 3))],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Clipwave Anime Edition • v1.0.0', style: GoogleFonts.delaGothicOne(fontSize: 13, color: kInk)),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Native cross-platform video & audio saver. High-speed extractor powered by yt-dlp.',
+                          style: TextStyle(fontSize: 11, color: Colors.black54),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Save Button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: kYellow,
+                        foregroundColor: kInk,
+                        elevation: 0,
+                        side: const BorderSide(color: kInk, width: 3),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _apiBaseUrl = controller.text.trim();
+                        });
+                        Navigator.pop(ctx);
+                      },
+                      child: Text('Save & Apply', style: GoogleFonts.delaGothicOne(fontSize: 15, color: kInk)),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            onPressed: () {
-              setState(() {
-                _apiBaseUrl = controller.text.trim();
-              });
-              Navigator.pop(ctx);
-            },
-            child: const Text('Save', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -991,16 +1167,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final isSelected = _selectedFormat == label;
     return InkWell(
       onTap: () {
-        setState(() {
-          _selectedFormat = label;
-          if (label == 'MP3') {
-            _selectedQualityCode = 'audio';
-            _selectedQualityLabel = 'Audio MP3';
-          } else {
-            _selectedQualityCode = _selectedQuality;
-            _selectedQualityLabel = 'MP4 $_selectedQuality';
-          }
-        });
+        if (label == 'MP3') {
+          _selectQuality('audio', 'Audio MP3');
+        } else {
+          _selectQuality(_selectedQuality, 'MP4 $_selectedQuality');
+        }
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
@@ -1024,12 +1195,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final isSelected = _selectedQuality == label && _selectedFormat == 'MP4';
     return InkWell(
       onTap: () {
-        setState(() {
-          _selectedFormat = 'MP4';
-          _selectedQuality = label;
-          _selectedQualityCode = label;
-          _selectedQualityLabel = 'MP4 $label';
-        });
+        _selectQuality(label, 'MP4 $label');
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
