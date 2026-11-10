@@ -52,12 +52,13 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, WidgetsBindingObserver {
   final TextEditingController _urlController = TextEditingController();
   final ScrollController _marqueeScrollController = ScrollController();
   
   // Default to the live Cloudflare Tunnel URL or local host
-  String _apiBaseUrl = 'https://pharmacology-frederick-henry-partnership.trycloudflare.com';
+  String _apiBaseUrl = 'https://bond-temporal-latter-align.trycloudflare.com';
+  static const MethodChannel _shareChannel = MethodChannel('com.clipwave.app/sharing');
 
   bool _isLoading = false;
   double _loadProgress = 0.2;
@@ -83,6 +84,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _radarController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2000),
@@ -93,16 +95,41 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 900),
     )..repeat(reverse: true);
 
-    // Auto-detect clipboard on app startup
+    // Auto-detect clipboard on app startup or shared intent from TikTok/Reels/YouTube
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (kIsWeb && (Uri.base.host == 'localhost' || Uri.base.host == '127.0.0.1')) {
         setState(() {
           _apiBaseUrl = 'http://127.0.0.1:5000';
         });
       }
+      _checkIncomingShare();
       _checkClipboardForVideoUrl();
       _startMarqueeScroll();
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkIncomingShare();
+      _checkClipboardForVideoUrl();
+    }
+  }
+
+  Future<void> _checkIncomingShare() async {
+    if (kIsWeb) return;
+    try {
+      final String? shared = await _shareChannel.invokeMethod('getSharedText');
+      if (shared != null && shared.trim().isNotEmpty) {
+        final reg = RegExp(r'https?://[^\s]+');
+        final match = reg.firstMatch(shared);
+        final url = match != null ? match.group(0)! : shared.trim();
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+          _urlController.text = url;
+          _fetchVideoInfo();
+        }
+      }
+    } catch (_) {}
   }
 
   void _startMarqueeScroll() {
@@ -121,6 +148,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _radarController.dispose();
     _eqController.dispose();
     _marqueeTimer?.cancel();
@@ -680,7 +708,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         label: const Text('☁️ Cloudflare Global (Default)', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11)),
                         onPressed: () {
                           setModalState(() {
-                            controller.text = 'https://pharmacology-frederick-henry-partnership.trycloudflare.com';
+                            controller.text = 'https://bond-temporal-latter-align.trycloudflare.com';
                           });
                         },
                       ),
