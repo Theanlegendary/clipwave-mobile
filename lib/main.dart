@@ -56,8 +56,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
   final TextEditingController _urlController = TextEditingController();
   final ScrollController _marqueeScrollController = ScrollController();
   
-  // Default to the live Cloudflare Tunnel URL or local host
-  String _apiBaseUrl = 'https://bond-temporal-latter-align.trycloudflare.com';
+  // Default to the permanent 24/7 Render Cloud URL
+  String _apiBaseUrl = 'https://clipwave-vfhe.onrender.com';
   static const MethodChannel _shareChannel = MethodChannel('com.clipwave.app/sharing');
 
   bool _isLoading = false;
@@ -715,10 +715,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
                       ActionChip(
                         backgroundColor: Colors.white,
                         side: const BorderSide(color: kInk, width: 1.5),
-                        label: const Text('🚀 Render.com Cloud', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11)),
+                        label: const Text('🚀 Render.com Cloud (24/7 Official)', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11)),
                         onPressed: () {
                           setModalState(() {
-                            controller.text = 'https://clipwave-backend.onrender.com';
+                            controller.text = 'https://clipwave-vfhe.onrender.com';
                           });
                         },
                       ),
